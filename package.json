@@ -2,7 +2,7 @@
   "name": "ssh-targets-manager",
   "displayName": "SSH Targets Manager",
   "description": "Enhanced SSH target management with search, grouping, and favorites",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "xiaolin",
   "license": "MIT",
   "repository": {
