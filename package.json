@@ -1,0 +1,213 @@
+{
+  "name": "ssh-targets-manager",
+  "displayName": "SSH Targets Manager",
+  "description": "Enhanced SSH target management with search, grouping, and favorites",
+  "version": "0.1.0",
+  "publisher": "xiaolin",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["ssh", "remote", "manager", "targets"],
+  "extensionKind": ["ui"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sshTargetsManager",
+          "title": "SSH Targets",
+          "icon": "resources/ssh-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sshTargetsManager": [
+        {
+          "type": "webview",
+          "id": "sshTargetsView",
+          "name": "SSH Targets"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "sshTargets.connect",
+        "title": "Connect",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "sshTargets.connectNewWindow",
+        "title": "Connect in New Window",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "sshTargets.addFavorite",
+        "title": "Add to Favorites",
+        "icon": "$(star-empty)"
+      },
+      {
+        "command": "sshTargets.removeFavorite",
+        "title": "Remove from Favorites",
+        "icon": "$(star-full)"
+      },
+      {
+        "command": "sshTargets.addHost",
+        "title": "Add Host",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sshTargets.removeHost",
+        "title": "Remove Host",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sshTargets.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sshTargets.copyHostname",
+        "title": "Copy Hostname"
+      },
+      {
+        "command": "sshTargets.copySshCommand",
+        "title": "Copy SSH Command"
+      },
+      {
+        "command": "sshTargets.openSshConfig",
+        "title": "Open SSH Config",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "sshTargets.openTerminal",
+        "title": "Open SSH Terminal",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "sshTargets.addFolder",
+        "title": "Add Folder",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "sshTargets.removeFolder",
+        "title": "Remove Folder",
+        "icon": "$(close)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sshTargets.addHost",
+          "when": "view == sshTargetsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sshTargets.refresh",
+          "when": "view == sshTargetsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sshTargets.openSshConfig",
+          "when": "view == sshTargetsView",
+          "group": "navigation@3"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "sshTargets.connect",
+          "when": "webviewSection == 'sshHost'",
+          "group": "1_connect@1"
+        },
+        {
+          "command": "sshTargets.connectNewWindow",
+          "when": "webviewSection == 'sshHost'",
+          "group": "1_connect@2"
+        },
+        {
+          "command": "sshTargets.openTerminal",
+          "when": "webviewSection == 'sshHost'",
+          "group": "1_connect@3"
+        },
+        {
+          "command": "sshTargets.addFavorite",
+          "when": "webviewSection == 'sshHost' && !webviewItemIsFavorite",
+          "group": "2_favorite@1"
+        },
+        {
+          "command": "sshTargets.removeFavorite",
+          "when": "webviewSection == 'sshHost' && webviewItemIsFavorite",
+          "group": "2_favorite@1"
+        },
+        {
+          "command": "sshTargets.copyHostname",
+          "when": "webviewSection == 'sshHost'",
+          "group": "3_copy@1"
+        },
+        {
+          "command": "sshTargets.copySshCommand",
+          "when": "webviewSection == 'sshHost'",
+          "group": "3_copy@2"
+        },
+        {
+          "command": "sshTargets.addFolder",
+          "when": "webviewSection == 'sshHost'",
+          "group": "4_folder@1"
+        },
+        {
+          "command": "sshTargets.removeHost",
+          "when": "webviewSection == 'sshHost'",
+          "group": "5_manage@1"
+        },
+        {
+          "command": "sshTargets.connect",
+          "when": "webviewSection == 'sshFolder'",
+          "group": "1_connect@1"
+        },
+        {
+          "command": "sshTargets.connectNewWindow",
+          "when": "webviewSection == 'sshFolder'",
+          "group": "1_connect@2"
+        },
+        {
+          "command": "sshTargets.removeFolder",
+          "when": "webviewSection == 'sshFolder'",
+          "group": "2_manage@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SSH Targets Manager",
+      "properties": {
+        "sshTargetsManager.sshConfigPaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional SSH config file paths to read (default: ~/.ssh/config)"
+        },
+        "sshTargetsManager.customGroups": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Custom group rules. Key = display name, Value = regex matching HostName.\n\nExample:\n```json\n{ \"Beijing\": \"192\\\\.168\\\\.9\\\\..*\", \"Wuhan\": \"192\\\\.168\\\\.49\\\\..*\" }\n```"
+        },
+        "sshTargetsManager.autoGroupBySubnet": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically group hosts by IP subnet"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
