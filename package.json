@@ -4,6 +4,15 @@
   "description": "Enhanced SSH target management with search, grouping, and favorites",
   "version": "0.1.0",
   "publisher": "xiaolin",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/westdefeat/ssh-targets-manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/westdefeat/ssh-targets-manager/issues"
+  },
+  "homepage": "https://github.com/westdefeat/ssh-targets-manager#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
