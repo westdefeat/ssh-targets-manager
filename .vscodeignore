@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 .github/**
+blog/**
 src/**
 node_modules/**
 .gitignore
