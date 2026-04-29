@@ -38,6 +38,7 @@ foreach ($base in $extDirs) {
     if (Test-Path $target) {
         $outDir = Join-Path $target "out"
         Copy-Item -Path "out\*" -Destination $outDir -Recurse -Force
+        Copy-Item -Path "package.json" -Destination (Join-Path $target "package.json") -Force
         Write-Host "Installed to: $target" -ForegroundColor Green
         $installed = $true
     }
