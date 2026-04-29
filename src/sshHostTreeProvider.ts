@@ -115,19 +115,6 @@ export class SSHHostTreeProvider implements vscode.TreeDataProvider<TreeElement>
             : vscode.TreeItemCollapsibleState.None;
         const ti = new vscode.TreeItem(host.name, state);
 
-        const desc: string[] = [];
-        if (host.hostname !== host.name) { desc.push(host.hostname); }
-        if (host.user) { desc.push(`@${host.user}`); }
-        const savedFolders = this.folders.getFolders(host.name);
-        if (savedFolders.length > 0) {
-            const names = savedFolders.map(f => {
-                const segs = f.split('/').filter(Boolean);
-                return segs[segs.length - 1] || '/';
-            });
-            desc.push(`[${names.join(', ')}]`);
-        }
-        ti.description = desc.join(' ');
-
         ti.tooltip = this.buildTooltip(host);
         ti.iconPath = new vscode.ThemeIcon('remote');
         ti.contextValue = isFavorite ? 'sshHostFavorite' : 'sshHost';

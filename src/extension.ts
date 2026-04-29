@@ -6,11 +6,12 @@ import { execFile, spawn } from 'child_process';
 import { parseSSHConfig, SSHHost } from './sshConfigParser';
 import { FavoriteManager } from './favoriteManager';
 import { RecentFoldersManager } from './recentFoldersManager';
-import { SshTargetsWebviewProvider, GroupData, HostData } from './sshTargetsWebviewProvider';
+import { SSHHostTreeProvider, TreeElement } from './sshHostTreeProvider';
 
 let log: vscode.LogOutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
+    const activateStartedAt = Date.now();
     log = vscode.window.createOutputChannel('SSH Targets Manager', { log: true });
     context.subscriptions.push(log);
     log.info('Extension activating');
@@ -18,185 +19,53 @@ export function activate(context: vscode.ExtensionContext) {
     const recentFolders = new RecentFoldersManager(context.globalState);
     let allHosts: SSHHost[] = [];
 
-    const webviewProvider = new SshTargetsWebviewProvider();
+    const treeProvider = new SSHHostTreeProvider(favorites, recentFolders);
+    const treeView = vscode.window.createTreeView('sshTargetsView', {
+        treeDataProvider: treeProvider,
+        showCollapseAll: true,
+    });
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            SshTargetsWebviewProvider.viewId,
-            webviewProvider,
-            { webviewOptions: { retainContextWhenHidden: true } },
-        ),
+        treeView,
     );
 
     // --- Data building ---
 
-    function toHostData(h: SSHHost): HostData {
-        return {
-            name: h.name,
-            hostname: h.hostname,
-            user: h.user,
-            port: h.port,
-            isFavorite: favorites.has(h.name),
-            folders: recentFolders.getFolders(h.name),
-        };
-    }
-
-    function buildGroups(): GroupData[] {
-        const groups: GroupData[] = [];
-
-        const favSet = favorites.getAll();
-        const favHosts = allHosts.filter(h => favSet.has(h.name));
-        if (favHosts.length > 0) {
-            groups.push({ label: 'Favorites', isFavorites: true, hosts: favHosts.map(toHostData) });
-        }
-
-        const config = vscode.workspace.getConfiguration('sshTargetsManager');
-        const customGroups: Record<string, string> = config.get('customGroups', {});
-        const autoGroup: boolean = config.get('autoGroupBySubnet', true);
-
-        if (Object.keys(customGroups).length > 0) {
-            groupByCustomRules(allHosts, customGroups, groups);
-        } else if (autoGroup) {
-            groupBySubnet(allHosts, groups);
-        } else {
-            groups.push({ label: 'All Hosts', isFavorites: false, hosts: allHosts.map(toHostData) });
-        }
-
-        return groups;
-    }
-
-    function groupBySubnet(hosts: SSHHost[], out: GroupData[]) {
-        const buckets = new Map<string, SSHHost[]>();
-        const other: SSHHost[] = [];
-        for (const h of hosts) {
-            const m = h.hostname.match(/^(\d+\.\d+\.\d+)\.\d+$/);
-            if (m) {
-                let arr = buckets.get(m[1]);
-                if (!arr) { arr = []; buckets.set(m[1], arr); }
-                arr.push(h);
-            } else {
-                other.push(h);
-            }
-        }
-        const sorted = [...buckets.entries()].sort(([a], [b]) => {
-            const pa = a.split('.').map(Number);
-            const pb = b.split('.').map(Number);
-            for (let i = 0; i < pa.length; i++) {
-                if (pa[i] !== pb[i]) { return pa[i] - pb[i]; }
-            }
-            return 0;
-        });
-        for (const [subnet, children] of sorted) {
-            out.push({ label: `${subnet}.x`, isFavorites: false, hosts: children.map(toHostData) });
-        }
-        if (other.length > 0) {
-            out.push({ label: 'Other', isFavorites: false, hosts: other.map(toHostData) });
-        }
-    }
-
-    function groupByCustomRules(hosts: SSHHost[], rules: Record<string, string>, out: GroupData[]) {
-        const compiled = Object.entries(rules).map(([name, pattern]) => ({
-            name, re: new RegExp(pattern),
-        }));
-        const buckets = new Map<string, SSHHost[]>();
-        const other: SSHHost[] = [];
-        for (const h of hosts) {
-            let matched = false;
-            for (const { name, re } of compiled) {
-                if (re.test(h.hostname) || re.test(h.name)) {
-                    let arr = buckets.get(name);
-                    if (!arr) { arr = []; buckets.set(name, arr); }
-                    arr.push(h);
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched) { other.push(h); }
-        }
-        for (const { name } of compiled) {
-            const children = buckets.get(name);
-            if (children && children.length > 0) {
-                out.push({ label: name, isFavorites: false, hosts: children.map(toHostData) });
-            }
-        }
-        if (other.length > 0) {
-            out.push({ label: 'Other', isFavorites: false, hosts: other.map(toHostData) });
-        }
+    function reportPerf(name: string, durationMs: number, detail?: string) {
+        log.info(`[perf] ${name}: ${durationMs.toFixed(1)}ms${detail ? ` (${detail})` : ''}`);
     }
 
     function refreshView() {
-        webviewProvider.updateData(buildGroups());
+        treeProvider.refresh();
     }
 
     function loadHosts() {
+        const startedAt = Date.now();
         const paths = getConfigPaths();
         log.info(`Loading SSH config from ${paths.length} path(s): ${paths.join(', ')}`);
         allHosts = [];
         for (const p of paths) {
             try {
+                const fileStartedAt = Date.now();
                 const content = fs.readFileSync(p, 'utf-8');
+                const readMs = Date.now() - fileStartedAt;
+                const parseStartedAt = Date.now();
                 const hosts = parseSSHConfig(content);
+                const parseMs = Date.now() - parseStartedAt;
                 log.info(`  ${p}: parsed ${hosts.length} host(s)`);
+                reportPerf(
+                    'sshConfig.readParse',
+                    Date.now() - fileStartedAt,
+                    `${hosts.length} host(s), ${content.length} byte(s), read ${readMs}ms, parse ${parseMs}ms`,
+                );
                 allHosts.push(...hosts);
             } catch (err: any) {
                 log.warn(`  ${p}: failed to read — ${err.message}`);
             }
         }
         log.info(`Total hosts loaded: ${allHosts.length}`);
-        refreshView();
+        reportPerf('data.loadHosts.total', Date.now() - startedAt, `${allHosts.length} host(s)`);
+        treeProvider.load(allHosts);
     }
-
-    // --- Webview action buttons ---
-
-    webviewProvider.onAction(async (msg) => {
-        const host = allHosts.find(h => h.name === msg.host);
-        if (!host) {
-            log.warn(`Action "${msg.action}" — host not found: ${msg.host}`);
-            return;
-        }
-        log.info(`Action "${msg.action}" on host "${host.name}"${msg.folder ? ` folder="${msg.folder}"` : ''}`);
-        switch (msg.action) {
-            case 'connect':
-                openRemote(host, false);
-                break;
-            case 'connectNewWindow':
-                openRemote(host, true);
-                break;
-            case 'connectFolder':
-                openRemote(host, false, msg.folder);
-                break;
-            case 'connectFolderNewWindow':
-                openRemote(host, true, msg.folder);
-                break;
-            case 'openTerminal':
-                openSshTerminal(host);
-                break;
-            case 'addFavorite':
-                await favorites.add(host.name);
-                refreshView();
-                break;
-            case 'removeFavorite':
-                await favorites.remove(host.name);
-                refreshView();
-                break;
-            case 'addFolder': {
-                const folderPath = await vscode.window.showInputBox({
-                    prompt: `Remote folder path for ${host.name}`,
-                    placeHolder: '/home/username/project',
-                });
-                if (folderPath) {
-                    await recentFolders.addFolder(host.name, folderPath);
-                    refreshView();
-                }
-                break;
-            }
-            case 'removeFolder':
-                if (msg.folder) {
-                    await recentFolders.removeFolder(host.name, msg.folder);
-                    refreshView();
-                }
-                break;
-        }
-    });
 
     // --- File watchers ---
 
@@ -220,28 +89,64 @@ export function activate(context: vscode.ExtensionContext) {
 
     const reg = vscode.commands.registerCommand;
 
+    function resolveContext(ctx?: any): { host?: SSHHost; folderPath?: string } {
+        if (!ctx) { return {}; }
+        const el = ctx as TreeElement;
+        if (el.kind === 'host') {
+            return { host: el.host };
+        }
+        if (el.kind === 'folder') {
+            return { host: el.host, folderPath: el.folderPath };
+        }
+        if (ctx.hostName) {
+            return {
+                host: allHosts.find(h => h.name === ctx.hostName),
+                folderPath: ctx.folderPath,
+            };
+        }
+        return {};
+    }
+
+    function setTreeFilter(value: string) {
+        treeProvider.setFilter(value);
+        treeView.message = treeProvider.filterActive
+            ? `Filtered: "${treeProvider.currentFilter}"`
+            : undefined;
+        vscode.commands.executeCommand('setContext', 'sshTargetsFilterActive', treeProvider.filterActive);
+    }
+
+    function showFilterInput() {
+        const input = vscode.window.createInputBox();
+        input.title = 'Filter SSH Targets';
+        input.placeholder = 'Filter by host, hostname, user, or folder';
+        input.value = treeProvider.currentFilter;
+        input.prompt = treeProvider.filterActive
+            ? 'The current filter remains visible in the SSH Targets view after this box closes.'
+            : undefined;
+        input.onDidChangeValue(value => setTreeFilter(value));
+        input.onDidAccept(() => input.hide());
+        input.onDidHide(() => input.dispose());
+        input.show();
+    }
+
     context.subscriptions.push(
         reg('sshTargets.connect', (ctx?: any) => {
-            if (!ctx?.hostName) { return; }
-            const host = allHosts.find(h => h.name === ctx.hostName);
-            if (host) { openRemote(host, false, ctx.folderPath); }
+            const { host, folderPath } = resolveContext(ctx);
+            if (host) { openRemote(host, false, folderPath); }
         }),
 
         reg('sshTargets.connectNewWindow', (ctx?: any) => {
-            if (!ctx?.hostName) { return; }
-            const host = allHosts.find(h => h.name === ctx.hostName);
-            if (host) { openRemote(host, true, ctx.folderPath); }
+            const { host, folderPath } = resolveContext(ctx);
+            if (host) { openRemote(host, true, folderPath); }
         }),
 
         reg('sshTargets.openTerminal', (ctx?: any) => {
-            if (!ctx?.hostName) { return; }
-            const host = allHosts.find(h => h.name === ctx.hostName);
-            if (host) { openSshTerminal(host); }
+            const { host, folderPath } = resolveContext(ctx);
+            if (host) { openSshTerminal(host, folderPath); }
         }),
 
         reg('sshTargets.addFolder', async (ctx?: any) => {
-            if (!ctx?.hostName) { return; }
-            const host = allHosts.find(h => h.name === ctx.hostName);
+            const { host } = resolveContext(ctx);
             if (!host) { return; }
             const folderPath = await vscode.window.showInputBox({
                 prompt: `Remote folder path for ${host.name}`,
@@ -254,29 +159,31 @@ export function activate(context: vscode.ExtensionContext) {
         }),
 
         reg('sshTargets.removeFolder', async (ctx?: any) => {
-            if (ctx?.hostName && ctx?.folderPath) {
-                await recentFolders.removeFolder(ctx.hostName, ctx.folderPath);
+            const { host, folderPath } = resolveContext(ctx);
+            if (host && folderPath) {
+                await recentFolders.removeFolder(host.name, folderPath);
                 refreshView();
             }
         }),
 
         reg('sshTargets.addFavorite', async (ctx?: any) => {
-            if (ctx?.hostName) {
-                await favorites.add(ctx.hostName);
+            const { host } = resolveContext(ctx);
+            if (host) {
+                await favorites.add(host.name);
                 refreshView();
             }
         }),
 
         reg('sshTargets.removeFavorite', async (ctx?: any) => {
-            if (ctx?.hostName) {
-                await favorites.remove(ctx.hostName);
+            const { host } = resolveContext(ctx);
+            if (host) {
+                await favorites.remove(host.name);
                 refreshView();
             }
         }),
 
         reg('sshTargets.copyHostname', (ctx?: any) => {
-            if (!ctx?.hostName) { return; }
-            const host = allHosts.find(h => h.name === ctx.hostName);
+            const { host } = resolveContext(ctx);
             if (host) {
                 vscode.env.clipboard.writeText(host.hostname);
                 vscode.window.showInformationMessage(`Copied: ${host.hostname}`);
@@ -284,8 +191,7 @@ export function activate(context: vscode.ExtensionContext) {
         }),
 
         reg('sshTargets.copySshCommand', (ctx?: any) => {
-            if (!ctx?.hostName) { return; }
-            const host = allHosts.find(h => h.name === ctx.hostName);
+            const { host } = resolveContext(ctx);
             if (host) {
                 const cmd = `ssh ${host.name}`;
                 vscode.env.clipboard.writeText(cmd);
@@ -294,8 +200,7 @@ export function activate(context: vscode.ExtensionContext) {
         }),
 
         reg('sshTargets.removeHost', async (ctx?: any) => {
-            if (!ctx?.hostName) { return; }
-            const host = allHosts.find(h => h.name === ctx.hostName);
+            const { host } = resolveContext(ctx);
             if (!host) { return; }
             const confirm = await vscode.window.showWarningMessage(
                 `Remove host "${host.name}" (${host.hostname})?`,
@@ -339,6 +244,10 @@ export function activate(context: vscode.ExtensionContext) {
         reg('sshTargets.addHost', () => {
             showAddHostPanel(allHosts, loadHosts);
         }),
+
+        reg('sshTargets.filter', () => showFilterInput()),
+
+        reg('sshTargets.clearFilter', () => setTreeFilter('')),
     );
 
     // --- Auto-record remote folders ---
@@ -368,6 +277,8 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     loadHosts();
+    vscode.commands.executeCommand('setContext', 'sshTargetsFilterActive', false);
+    reportPerf('extension.activate', Date.now() - activateStartedAt, `${allHosts.length} host(s)`);
 }
 
 // --- Remote connection ---
@@ -410,12 +321,14 @@ function fallbackHomeDir(host: SSHHost): string {
     return user === 'root' ? '/root' : `/home/${user}`;
 }
 
-function openSshTerminal(host: SSHHost) {
-    const args = [host.name];
+function openSshTerminal(host: SSHHost, folderPath?: string) {
+    const args = folderPath
+        ? ['-t', host.name, `cd ${quotePosixPath(folderPath)} && exec "\${SHELL:-/bin/sh}" -l`]
+        : [host.name];
     log.info(`openSshTerminal: ssh ${args.join(' ')}`);
     try {
         const term = vscode.window.createTerminal({
-            name: `SSH: ${host.name}`,
+            name: folderPath ? `SSH: ${host.name}:${folderPath}` : `SSH: ${host.name}`,
             shellPath: 'ssh',
             shellArgs: args,
         });
@@ -426,6 +339,10 @@ function openSshTerminal(host: SSHHost) {
         log.show(true);
         vscode.window.showErrorMessage(`Failed to open SSH terminal: ${message}`);
     }
+}
+
+function quotePosixPath(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 async function openRemote(host: SSHHost, forceNewWindow: boolean, folderPath?: string) {

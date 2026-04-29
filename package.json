@@ -19,7 +19,6 @@
   "categories": ["Other"],
   "keywords": ["ssh", "remote", "manager", "targets"],
   "extensionKind": ["ui"],
-  "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -34,7 +33,6 @@
     "views": {
       "sshTargetsManager": [
         {
-          "type": "webview",
           "id": "sshTargetsView",
           "name": "SSH Targets"
         }
@@ -103,6 +101,16 @@
         "command": "sshTargets.removeFolder",
         "title": "Remove Folder",
         "icon": "$(close)"
+      },
+      {
+        "command": "sshTargets.filter",
+        "title": "Filter Hosts",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "sshTargets.clearFilter",
+        "title": "Clear Filter",
+        "icon": "$(clear-all)"
       }
     ],
     "menus": {
@@ -120,68 +128,68 @@
         {
           "command": "sshTargets.openSshConfig",
           "when": "view == sshTargetsView",
+          "group": "2_manage@2"
+        },
+        {
+          "command": "sshTargets.filter",
+          "when": "view == sshTargetsView",
           "group": "navigation@3"
+        },
+        {
+          "command": "sshTargets.clearFilter",
+          "when": "view == sshTargetsView && sshTargetsFilterActive",
+          "group": "navigation@4"
         }
       ],
-      "webview/context": [
+      "view/item/context": [
         {
           "command": "sshTargets.connect",
-          "when": "webviewSection == 'sshHost'",
-          "group": "1_connect@1"
+          "when": "view == sshTargetsView && (viewItem == sshHost || viewItem == sshHostFavorite || viewItem == sshFolder)",
+          "group": "inline@1"
         },
         {
           "command": "sshTargets.connectNewWindow",
-          "when": "webviewSection == 'sshHost'",
-          "group": "1_connect@2"
+          "when": "view == sshTargetsView && (viewItem == sshHost || viewItem == sshHostFavorite || viewItem == sshFolder)",
+          "group": "inline@2"
         },
         {
           "command": "sshTargets.openTerminal",
-          "when": "webviewSection == 'sshHost'",
-          "group": "1_connect@3"
+          "when": "view == sshTargetsView && (viewItem == sshHost || viewItem == sshHostFavorite || viewItem == sshFolder)",
+          "group": "inline@3"
         },
         {
           "command": "sshTargets.addFavorite",
-          "when": "webviewSection == 'sshHost' && !webviewItemIsFavorite",
+          "when": "view == sshTargetsView && viewItem == sshHost",
           "group": "2_favorite@1"
         },
         {
           "command": "sshTargets.removeFavorite",
-          "when": "webviewSection == 'sshHost' && webviewItemIsFavorite",
+          "when": "view == sshTargetsView && viewItem == sshHostFavorite",
           "group": "2_favorite@1"
         },
         {
           "command": "sshTargets.copyHostname",
-          "when": "webviewSection == 'sshHost'",
+          "when": "view == sshTargetsView && (viewItem == sshHost || viewItem == sshHostFavorite)",
           "group": "3_copy@1"
         },
         {
           "command": "sshTargets.copySshCommand",
-          "when": "webviewSection == 'sshHost'",
+          "when": "view == sshTargetsView && (viewItem == sshHost || viewItem == sshHostFavorite)",
           "group": "3_copy@2"
         },
         {
           "command": "sshTargets.addFolder",
-          "when": "webviewSection == 'sshHost'",
+          "when": "view == sshTargetsView && (viewItem == sshHost || viewItem == sshHostFavorite)",
           "group": "4_folder@1"
         },
         {
           "command": "sshTargets.removeHost",
-          "when": "webviewSection == 'sshHost'",
+          "when": "view == sshTargetsView && (viewItem == sshHost || viewItem == sshHostFavorite)",
           "group": "5_manage@1"
         },
         {
-          "command": "sshTargets.connect",
-          "when": "webviewSection == 'sshFolder'",
-          "group": "1_connect@1"
-        },
-        {
-          "command": "sshTargets.connectNewWindow",
-          "when": "webviewSection == 'sshFolder'",
-          "group": "1_connect@2"
-        },
-        {
           "command": "sshTargets.removeFolder",
-          "when": "webviewSection == 'sshFolder'",
+          "when": "view == sshTargetsView && viewItem == sshFolder",
           "group": "2_manage@1"
         }
       ]
