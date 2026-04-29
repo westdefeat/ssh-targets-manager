@@ -2,12 +2,12 @@
   "name": "ssh-targets-manager",
   "displayName": "SSH Targets Manager",
   "description": "Enhanced SSH target management with search, grouping, and favorites",
-  "version": "0.1.1",
-  "publisher": "xiaolin",
+  "version": "0.1.3",
+  "publisher": "fanxiaolin",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/westdefeat/ssh-targets-manager.git"
+    "url": "https://github.com/westdefeat/ssh-targets-manager"
   },
   "bugs": {
     "url": "https://github.com/westdefeat/ssh-targets-manager/issues"
