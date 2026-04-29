@@ -6,13 +6,8 @@ SSH Targets Manager gives you a focused sidebar for browsing, searching, groupin
 
 ## Preview
 
-<!-- Replace these placeholders after adding screenshots to the repository. Suggested path: images/preview.png -->
+![SSH Targets sidebar](images/preview.gif)
 
-![SSH Targets sidebar](images/preview.png)
-
-<!-- Optional: add a short GIF showing search -> favorite -> connect. Suggested path: images/demo.gif -->
-
-<!-- ![SSH Targets Manager demo](images/demo.gif) -->
 
 ## Highlights
 
@@ -85,7 +80,9 @@ Build and copy the compiled output into an installed extension directory:
 
 ## Release Notes
 
-### 0.1.3
+### 0.1.4
 
+- Replaced the preview screenshot with an animated GIF.
+- Improved the local build script to package and install the extension into the current editor.
 - Improved Marketplace documentation and publishing metadata.
 - Added SSH target browsing, filtering, grouping, favorites, remembered folders, and connection actions.
