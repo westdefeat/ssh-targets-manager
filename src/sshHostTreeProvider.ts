@@ -85,7 +85,7 @@ export class SSHHostTreeProvider implements vscode.TreeDataProvider<TreeElement>
             }));
         }
         if (el.kind === 'host') {
-            return this.folders.getFolders(el.host.name).map(p => ({
+            return this.getHostFolders(el.host).map(p => ({
                 kind: 'folder' as const,
                 host: el.host,
                 folderPath: p,
@@ -109,9 +109,11 @@ export class SSHHostTreeProvider implements vscode.TreeDataProvider<TreeElement>
 
     private buildHostItem(el: HostNode): vscode.TreeItem {
         const { host, isFavorite } = el;
-        const hasFolders = this.folders.hasFolders(host.name);
+        const hasFolders = this.folders.hasFoldersForAliases(getHostAliases(host));
         const state = hasFolders
-            ? vscode.TreeItemCollapsibleState.Collapsed
+            ? (this.filterActive
+                ? vscode.TreeItemCollapsibleState.Expanded
+                : vscode.TreeItemCollapsibleState.Collapsed)
             : vscode.TreeItemCollapsibleState.None;
         const ti = new vscode.TreeItem(host.name, state);
 
@@ -155,7 +157,7 @@ export class SSHHostTreeProvider implements vscode.TreeDataProvider<TreeElement>
                 h.name.toLowerCase().includes(q) ||
                 h.hostname.toLowerCase().includes(q) ||
                 (h.user?.toLowerCase().includes(q) ?? false) ||
-                this.folders.getFolders(h.name).some(f => f.toLowerCase().includes(q)),
+                this.getHostFolders(h).some(f => f.toLowerCase().includes(q)),
             );
         }
 
@@ -263,9 +265,24 @@ export class SSHHostTreeProvider implements vscode.TreeDataProvider<TreeElement>
             out.push({ kind: 'group', label: 'Other', children: other, isFavorites: false });
         }
     }
+
+    private getHostFolders(host: SSHHost): string[] {
+        return this.folders.getFoldersForAliases(getHostAliases(host));
+    }
 }
 
 function extractSubnet(hostname: string): string | null {
     const m = hostname.match(/^(\d+\.\d+\.\d+)\.\d+$/);
     return m ? m[1] : null;
+}
+
+export function getHostAliases(host: SSHHost): string[] {
+    const aliases = [host.name, host.hostname];
+    aliases.push(encodeRemoteAuthorityHost(host.name));
+    aliases.push(encodeRemoteAuthorityHost(host.hostname));
+    return [...new Set(aliases.filter(Boolean))];
+}
+
+function encodeRemoteAuthorityHost(hostName: string): string {
+    return Buffer.from(JSON.stringify({ hostName }), 'utf8').toString('hex');
 }

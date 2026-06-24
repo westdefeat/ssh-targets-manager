@@ -6,7 +6,7 @@ import { execFile, spawn } from 'child_process';
 import { parseSSHConfig, SSHHost } from './sshConfigParser';
 import { FavoriteManager } from './favoriteManager';
 import { RecentFoldersManager } from './recentFoldersManager';
-import { SSHHostTreeProvider, TreeElement } from './sshHostTreeProvider';
+import { getHostAliases, SSHHostTreeProvider, TreeElement } from './sshHostTreeProvider';
 
 let log: vscode.LogOutputChannel;
 
@@ -161,7 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
         reg('sshTargets.removeFolder', async (ctx?: any) => {
             const { host, folderPath } = resolveContext(ctx);
             if (host && folderPath) {
-                await recentFolders.removeFolder(host.name, folderPath);
+                await recentFolders.removeFolderForAliases(getHostAliases(host), folderPath);
                 refreshView();
             }
         }),
@@ -252,33 +252,132 @@ export function activate(context: vscode.ExtensionContext) {
 
     // --- Auto-record remote folders ---
 
-    function recordRemoteFolders() {
+    async function recordRemoteFolderUri(uri: vscode.Uri, source: string): Promise<boolean> {
+        if (uri.scheme !== 'vscode-remote') { return false; }
+        const match = uri.authority.match(/^ssh-remote\+(.+)$/);
+        if (!match) { return false; }
+        const remoteHostName = parseRemoteAuthorityHost(match[1]);
+        const hostName = resolveConfigHostName(remoteHostName);
+        const folderPath = uri.path;
+        if (!hostName || !folderPath || folderPath === '/') { return false; }
+        log.info(`Auto-recording remote folder from ${source}: ${remoteHostName} -> ${hostName}:${folderPath}`);
+        await recentFolders.addFolder(hostName, folderPath);
+        return true;
+    }
+
+    async function recordRemoteFolders() {
         const wsFolders = vscode.workspace.workspaceFolders;
         if (!wsFolders || wsFolders.length === 0) { return; }
         let recorded = false;
         for (const ws of wsFolders) {
-            if (ws.uri.scheme !== 'vscode-remote') { continue; }
-            const match = ws.uri.authority.match(/^ssh-remote\+(.+)$/);
-            if (!match) { continue; }
-            const hostName = match[1];
-            const folderPath = ws.uri.path;
-            if (hostName && folderPath && folderPath !== '/') {
-                log.info(`Auto-recording remote folder: ${hostName}:${folderPath}`);
-                recentFolders.addFolder(hostName, folderPath);
-                recorded = true;
-            }
+            recorded = await recordRemoteFolderUri(ws.uri, 'workspace') || recorded;
         }
         if (recorded) { refreshView(); }
     }
 
-    recordRemoteFolders();
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeWorkspaceFolders(() => recordRemoteFolders()),
-    );
+    async function importRecentlyOpenedRemoteFolders() {
+        let recentlyOpened: unknown;
+        try {
+            recentlyOpened = await vscode.commands.executeCommand('_workbench.getRecentlyOpened');
+        } catch (err: any) {
+            log.debug(`importRecentlyOpenedRemoteFolders: unavailable — ${err?.message ?? String(err)}`);
+            return;
+        }
+
+        const uris = collectRecentlyOpenedFolderUris(recentlyOpened);
+        let recorded = false;
+        for (const uri of uris) {
+            recorded = await recordRemoteFolderUri(uri, 'recently opened') || recorded;
+        }
+        if (recorded) { refreshView(); }
+    }
+
+    function resolveConfigHostName(remoteHostName: string): string {
+        const remoteLower = remoteHostName.toLowerCase();
+        const matched = allHosts.find(h =>
+            h.name.toLowerCase() === remoteLower ||
+            h.hostname.toLowerCase() === remoteLower,
+        );
+        return matched?.name ?? remoteHostName;
+    }
 
     loadHosts();
+    void recordRemoteFolders();
+    void importRecentlyOpenedRemoteFolders();
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeWorkspaceFolders(() => { void recordRemoteFolders(); }),
+    );
+
     vscode.commands.executeCommand('setContext', 'sshTargetsFilterActive', false);
     reportPerf('extension.activate', Date.now() - activateStartedAt, `${allHosts.length} host(s)`);
+}
+
+function parseRemoteAuthorityHost(value: string): string {
+    const decoded = decodeURIComponent(value);
+    const jsonHost = parseHexJsonHostName(decoded);
+    return jsonHost ?? decoded;
+}
+
+function parseHexJsonHostName(value: string): string | undefined {
+    if (!/^[\da-f]+$/i.test(value) || value.length % 2 !== 0) {
+        return undefined;
+    }
+    try {
+        const parsed = JSON.parse(Buffer.from(value, 'hex').toString('utf8')) as { hostName?: unknown };
+        return typeof parsed.hostName === 'string' && parsed.hostName ? parsed.hostName : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function collectRecentlyOpenedFolderUris(value: unknown): vscode.Uri[] {
+    const result: vscode.Uri[] = [];
+    if (!isRecord(value)) { return result; }
+    const workspaces = value.workspaces;
+    if (!Array.isArray(workspaces)) { return result; }
+
+    for (const entry of workspaces) {
+        if (!isRecord(entry)) { continue; }
+        const folderUri = uriFromUnknown(entry.folderUri);
+        if (folderUri) {
+            result.push(folderUri);
+            continue;
+        }
+
+        const workspace = entry.workspace;
+        if (isRecord(workspace)) {
+            const configPath = uriFromUnknown(workspace.configPath);
+            if (configPath) { result.push(configPath); }
+        }
+    }
+
+    return result;
+}
+
+function uriFromUnknown(value: unknown): vscode.Uri | undefined {
+    if (value instanceof vscode.Uri) {
+        return value;
+    }
+    if (typeof value === 'string') {
+        return vscode.Uri.parse(value);
+    }
+    if (isRecord(value)) {
+        const external = value.external;
+        if (typeof external === 'string') {
+            return vscode.Uri.parse(external);
+        }
+        const scheme = value.scheme;
+        const authority = value.authority;
+        const pathValue = value.path;
+        if (typeof scheme === 'string' && typeof authority === 'string' && typeof pathValue === 'string') {
+            return vscode.Uri.from({ scheme, authority, path: pathValue });
+        }
+    }
+    return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
 }
 
 // --- Remote connection ---
