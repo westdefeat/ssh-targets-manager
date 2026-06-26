@@ -2,7 +2,7 @@
   "name": "ssh-targets-manager",
   "displayName": "SSH Targets Manager",
   "description": "Enhanced SSH target management with search, grouping, and favorites",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "fanxiaolin",
   "icon": "resources/icon.png",
   "license": "MIT",
@@ -112,6 +112,10 @@
         "command": "sshTargets.clearFilter",
         "title": "Clear Filter",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "sshTargets.showStorageLocation",
+        "title": "Show Shared Storage Location"
       }
     ],
     "menus": {

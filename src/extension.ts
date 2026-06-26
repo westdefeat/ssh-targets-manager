@@ -6,7 +6,10 @@ import { execFile, spawn } from 'child_process';
 import { parseSSHConfig, SSHHost } from './sshConfigParser';
 import { FavoriteManager } from './favoriteManager';
 import { RecentFoldersManager } from './recentFoldersManager';
+import { SharedFolderStore } from './sharedFolderStore';
 import { getHostAliases, SSHHostTreeProvider, TreeElement } from './sshHostTreeProvider';
+
+const MIGRATION_NOTICE_KEY = 'sshTargets.sharedStoreMigrationNoticeShown';
 
 let log: vscode.LogOutputChannel;
 
@@ -16,7 +19,15 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(log);
     log.info('Extension activating');
     const favorites = new FavoriteManager(context.globalState);
-    const recentFolders = new RecentFoldersManager(context.globalState);
+
+    // Shared on-disk store under ~/.ssh/.ssh-targets-folders.json.
+    // This is the source of truth across Cursor / Trae / VS Code / etc.
+    const sharedFolders = new SharedFolderStore(log);
+    sharedFolders.load();
+    const recentFolders = new RecentFoldersManager(context.globalState, sharedFolders);
+
+    maybeAnnounceMigration(context, recentFolders.migrationResult);
+
     let allHosts: SSHHost[] = [];
 
     const treeProvider = new SSHHostTreeProvider(favorites, recentFolders);
@@ -248,6 +259,28 @@ export function activate(context: vscode.ExtensionContext) {
         reg('sshTargets.filter', () => showFilterInput()),
 
         reg('sshTargets.clearFilter', () => setTreeFilter('')),
+
+        reg('sshTargets.showStorageLocation', async () => {
+            const filePath = sharedFolders.location;
+            const exists = fs.existsSync(filePath);
+            if (!exists) {
+                const choice = await vscode.window.showInformationMessage(
+                    `Shared folder store not created yet: ${filePath}`,
+                    'Reveal parent folder',
+                );
+                if (choice === 'Reveal parent folder') {
+                    vscode.env.openExternal(vscode.Uri.file(path.dirname(filePath)));
+                }
+                return;
+            }
+            try {
+                const doc = await vscode.workspace.openTextDocument(filePath);
+                await vscode.window.showTextDocument(doc, { preview: true });
+            } catch (err: any) {
+                log.error(`Failed to open ${filePath}: ${err?.message ?? String(err)}`);
+                vscode.window.showErrorMessage(`Failed to open ${filePath}: ${err?.message ?? String(err)}`);
+            }
+        }),
     );
 
     // --- Auto-record remote folders ---
@@ -662,3 +695,30 @@ window.addEventListener('message',ev=>{
 }
 
 export function deactivate() {}
+
+function maybeAnnounceMigration(
+    context: vscode.ExtensionContext,
+    result: { migrated: number; storePath: string },
+) {
+    if (result.migrated <= 0) { return; }
+    if (context.globalState.get<boolean>(MIGRATION_NOTICE_KEY, false)) { return; }
+    log.info(`Migrated ${result.migrated} folder record(s) to shared store at ${result.storePath}`);
+    const message =
+        `SSH Targets Manager: migrated ${result.migrated} folder record(s) from this editor's ` +
+        `local storage to ${result.storePath}. This file is now shared with all editors ` +
+        `(Cursor, Trae, VS Code, …) — open each editor once to merge its history.`;
+    vscode.window
+        .showInformationMessage(message, 'Open file')
+        .then(choice => {
+            if (choice === 'Open file') {
+                vscode.workspace.openTextDocument(result.storePath).then(
+                    doc => vscode.window.showTextDocument(doc, { preview: true }),
+                    (err: any) => log.error(`Failed to open ${result.storePath}: ${err?.message ?? String(err)}`),
+                );
+            }
+        });
+    context.globalState.update(MIGRATION_NOTICE_KEY, true).then(
+        () => { /* no-op */ },
+        () => { /* best-effort */ },
+    );
+}
